@@ -1,2 +1,6 @@
 BasedOnStyle: LLVM
 IndentWidth: 4
+AllowShortIfStatementsOnASingleLine: WithoutElse
+ColumnLimit: 100
+ReflowComments: false
+AlignTrailingComments: false

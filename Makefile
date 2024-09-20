@@ -1,7 +1,7 @@
 CC := gcc
 CFLAGS := -Wall -Wextra -O2
 INCLUDES :=
-LIBS := -lncurses
+LIBS := -lncurses -lavformat -lavcodec -lavutil
 SRC := main.c
 TARGET := main
 
