@@ -1,174 +1,144 @@
-#include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libavutil/avutil.h>
-#include <libavutil/pixdesc.h>
-#include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 
-static void save_gray_frame(unsigned char *buf, int wrap, int xsize, int ysize, char *filename);
-static void logging(const char *fmt, ...);
-
-int main(int argc, char **args) {
-    if (argc < 2) {
-        printf("Usage: ./main <path>");
-        exit(1);
-    }
-
-    const char *fname = args[1];
-
-    AVFormatContext *format_ctx = avformat_alloc_context();
-    if (!format_ctx) {
-        logging("[ERROR] could not allocate memory for Format Context");
+int main(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "Usage: ./main <input_path> <output_path>\n");
         return -1;
     }
+    const char *input_fname = argv[1];
+    const char *output_fname = argv[2];
+    printf("Input Fname: %s\n", input_fname);
 
-    if (avformat_open_input(&format_ctx, fname, NULL, NULL) != 0) {
-        logging("[ERROR] could not open the file");
-        return -1;
+    int ffmpeg_ret = 0;
+    char *err_context = NULL;
+    int *stream_list = NULL;
+
+    AVFormatContext *input_format_ctx = NULL;
+    AVFormatContext *output_format_ctx = NULL;
+
+    ffmpeg_ret = avformat_open_input(&input_format_ctx, input_fname, NULL, NULL);
+    if (ffmpeg_ret < 0) {
+        err_context = "avformat_open_input";
+        goto end;
     }
 
-    logging("Format: %s", format_ctx->iformat->long_name);
-    logging("Duration: %ld", format_ctx->duration);
-
-    if (avformat_find_stream_info(format_ctx, NULL) < 0) {
-        logging("[ERROR] could not get the stream info");
-        return -1;
+    ffmpeg_ret = avformat_find_stream_info(input_format_ctx, NULL);
+    if (ffmpeg_ret < 0) {
+        err_context = "avformat_find_stream_info";
+        goto end;
     }
 
-    logging("Number of streams: %d", format_ctx->nb_streams);
+    ffmpeg_ret = avformat_alloc_output_context2(&output_format_ctx, NULL, NULL, output_fname);
+    if (ffmpeg_ret < 0) {
+        err_context = "avformat_alloc_output_context2 | could not create output context";
+        goto end;
+    }
 
-    const AVCodec *video_codec = NULL;
-    AVCodecParameters *vcodec_params = NULL;
-    int vstream_index = -1;
+    int nb_streams = input_format_ctx->nb_streams;
+    stream_list = av_malloc_array(nb_streams, sizeof(*stream_list));
+    if (!stream_list) {
+        ffmpeg_ret = AVERROR(ENOMEM);
+        goto end;
+    }
 
-    for (size_t i = 0; i < format_ctx->nb_streams; i++) {
-        AVCodecParameters *local_codec_param = format_ctx->streams[i]->codecpar;
+    printf("Nb streams: %d\n", nb_streams);
 
-        const AVCodec *local_codec = avcodec_find_decoder(local_codec_param->codec_id);
-        if (!local_codec) {
+    int stream_index = 0;
+    for (int i = 0; i < nb_streams; i++) {
+        AVStream *in_stream = input_format_ctx->streams[i];
+        AVCodecParameters *in_codecpar = in_stream->codecpar;
+        if (in_codecpar->codec_type != AVMEDIA_TYPE_VIDEO &&
+            in_codecpar->codec_type != AVMEDIA_TYPE_AUDIO) {
+            stream_list[i] = -1;
             continue;
         }
 
-        if (local_codec_param->codec_type == AVMEDIA_TYPE_VIDEO) {
-            logging("Video: %dx%d", local_codec_param->width, local_codec_param->height);
-            if (vstream_index == -1) {
-                vstream_index = i;
-                video_codec = local_codec;
-                vcodec_params = local_codec_param;
-            }
-            logging("AVRationale Stream: %d/%d", format_ctx->streams[i]->time_base.num,
-                    format_ctx->streams[i]->time_base.den);
-        } else if (local_codec_param->codec_type == AVMEDIA_TYPE_AUDIO) {
-            logging("Audio: %d channels, sample rate %d", local_codec_param->ch_layout.nb_channels,
-                    local_codec_param->sample_rate);
+        stream_list[i] = stream_index++;
+        AVStream *out_stream = avformat_new_stream(output_format_ctx, NULL);
+        if (!out_stream) {
+            ffmpeg_ret = AVERROR_UNKNOWN;
+            err_context = "avformat_new_stream | could not create output stream";
+            goto end;
         }
 
-        logging("Codec: %s, Id: %d, BitRate: %ld", local_codec->long_name, local_codec->id,
-                local_codec_param->bit_rate);
-        printf("\n");
-    }
-
-    if (vstream_index == -1) {
-        logging("File %s does not contain a video stream", fname);
-        return -1;
-    }
-
-    AVCodecContext *vcodec_ctx = avcodec_alloc_context3(video_codec);
-    if (!vcodec_ctx) {
-        logging("[ERROR]: failed to allocated memory for AVCodecContext");
-        return -1;
-    }
-    if (avcodec_parameters_to_context(vcodec_ctx, vcodec_params) < 0) {
-        logging("[ERROR]: failed to copy params to codec context");
-        return -1;
-    }
-    if (avcodec_open2(vcodec_ctx, video_codec, NULL) < 0) {
-        logging("[ERROR]: failed to open codec through avcodec_open2");
-        return -1;
-    }
-
-    AVPacket *packet = av_packet_alloc();
-    if (!packet) {
-        logging("[ERROR]: failed to allocate memory for AVPacket");
-        return -1;
-    }
-    AVFrame *frame = av_frame_alloc();
-    if (!frame) {
-        logging("[ERROR]: failed to allocate memory for AVFrame");
-        return -1;
-    }
-
-    while (av_read_frame(format_ctx, packet) >= 0) {
-        if (packet->stream_index == vstream_index) {
-            int response = avcodec_send_packet(vcodec_ctx, packet);
-            if (response < 0) {
-                logging("Error sending packet: %s", av_err2str(response));
-                return -1;
-            }
-
-            while (response >= 0) {
-                response = avcodec_receive_frame(vcodec_ctx, frame);
-                if (response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
-                    break;
-                } else if (response < 0) {
-                    logging("Error while receiving a frame from the decoder: %s",
-                            av_err2str(response));
-                    return -1;
-                }
-
-                logging("Frame %" PRId64
-                        " [%c] [size=%d] [%dx%d] (%d, %d, %d) (%s) (keyframe = %d)",
-                        vcodec_ctx->frame_num, av_get_picture_type_char(frame->pict_type),
-                        packet->size, frame->width, frame->height, frame->linesize[0],
-                        frame->linesize[1], frame->linesize[2], av_get_pix_fmt_name(frame->format),
-                        frame->flags & AV_FRAME_FLAG_KEY);
-
-                char frame_fname[1024];
-                snprintf(frame_fname, sizeof(frame_fname), "frames/%s-%ld.pgm", "frame",
-                         vcodec_ctx->frame_num);
-                if (frame->format != AV_PIX_FMT_YUV420P) {
-                    printf("Warning: the generated file may not be a grayscale image, but could "
-                           "e.g. be just the R component if the video format is RGB\n");
-                }
-
-                save_gray_frame(frame->data[0], frame->linesize[0], frame->width, frame->height,
-                                frame_fname);
-            }
-            av_packet_unref(packet);
+        ffmpeg_ret = avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
+        if (ffmpeg_ret < 0) {
+            err_context = "avcodec_parameters_copy | could not copy parameters";
+            goto end;
         }
     }
 
-    av_frame_free(&frame);
-    av_packet_free(&packet);
-    avcodec_free_context(&vcodec_ctx);
-    avformat_close_input(&format_ctx);
-}
+    av_dump_format(output_format_ctx, 0, output_fname, 1);
 
-static void save_gray_frame(unsigned char *buf, int wrap, int xsize, int ysize, char *filename) {
-    FILE *f;
-    int i;
-    f = fopen(filename, "w");
-    if (f == NULL) {
-        perror("error file");
-        exit(1);
+    if (!(output_format_ctx->oformat->flags & AVFMT_NOFILE)) {
+        ffmpeg_ret = avio_open(&output_format_ctx->pb, output_fname, AVIO_FLAG_WRITE);
+        if (ffmpeg_ret < 0) {
+            err_context = "avio_open";
+            goto end;
+        }
     }
-    // writing the minimal required header for a pgm file format
-    // portable graymap format -> https://en.wikipedia.org/wiki/Netpbm_format#PGM_example
-    fprintf(f, "P5\n%d %d\n%d\n", xsize, ysize, 255);
 
-    // writing line by line
-    for (i = 0; i < ysize; i++) {
-        fwrite(buf + i * wrap, 1, xsize, f);
+    AVDictionary *opts = NULL;
+    ffmpeg_ret = avformat_write_header(output_format_ctx, &opts);
+    if (ffmpeg_ret < 0) {
+        err_context = "avformat_write_header";
+        goto end;
     }
-    fclose(f);
-}
 
-static void logging(const char *fmt, ...) {
-    va_list args;
-    fprintf(stderr, "LOG: ");
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    fprintf(stderr, "\n");
+    AVPacket packet;
+    int i = 0;
+    while (1) {
+        AVStream *in_stream, *out_stream;
+        ffmpeg_ret = av_read_frame(input_format_ctx, &packet);
+
+        if (ffmpeg_ret < 0) {
+            break;
+        }
+        i += 1;
+
+        in_stream = input_format_ctx->streams[packet.stream_index];
+        if (packet.stream_index >= nb_streams || stream_list[packet.stream_index] < 0) {
+            av_packet_unref(&packet);
+            continue;
+        }
+
+        packet.stream_index = stream_list[packet.stream_index];
+        out_stream = output_format_ctx->streams[packet.stream_index];
+
+        packet.pts = av_rescale_q_rnd(packet.pts, in_stream->time_base, out_stream->time_base,
+                                      AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+        packet.dts = av_rescale_q_rnd(packet.dts, in_stream->time_base, out_stream->time_base,
+                                      AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+        packet.duration =
+            av_rescale_q(packet.duration, in_stream->time_base, out_stream->time_base);
+        packet.pos = -1;
+
+        ffmpeg_ret = av_interleaved_write_frame(output_format_ctx, &packet);
+        if (ffmpeg_ret < 0) {
+            err_context = "error muxing";
+            break;
+        }
+
+        av_packet_unref(&packet);
+    }
+    av_write_trailer(output_format_ctx);
+
+end:
+    if (output_format_ctx && !(output_format_ctx->oformat->flags & AVFMT_NOFILE)) {
+        avio_closep(&output_format_ctx->pb);
+    }
+    avformat_free_context(output_format_ctx);
+    if (stream_list) av_free(stream_list);
+
+    if (ffmpeg_ret < 0 && ffmpeg_ret != AVERROR_EOF) {
+        if (err_context) {
+            fprintf(stderr, "[Error] ffmpeg <%s>: %s\n", err_context, av_err2str(ffmpeg_ret));
+        } else {
+            fprintf(stderr, "[Error] ffmpeg: %s\n", av_err2str(ffmpeg_ret));
+        }
+        return 1;
+    }
+
+    return 0;
 }
