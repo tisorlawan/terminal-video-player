@@ -3,7 +3,7 @@ CFLAGS := -Wall -Wextra -O2
 INCLUDES :=
 LIBS := -lncurses -lavformat -lavcodec -lavutil
 SRC := main.c
-TARGET := main
+TARGET := tvp
 
 .PHONY := all clean
 

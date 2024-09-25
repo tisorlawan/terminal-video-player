@@ -4,3 +4,6 @@ AllowShortIfStatementsOnASingleLine: WithoutElse
 ColumnLimit: 100
 ReflowComments: false
 AlignTrailingComments: false
+AlignEscapedNewlines: Left
+AllowShortFunctionsOnASingleLine: None
+AlwaysBreakAfterReturnType: None
