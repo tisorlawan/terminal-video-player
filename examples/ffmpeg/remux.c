@@ -128,6 +128,7 @@ end:
     if (output_format_ctx && !(output_format_ctx->oformat->flags & AVFMT_NOFILE)) {
         avio_closep(&output_format_ctx->pb);
     }
+
     avformat_free_context(output_format_ctx);
     avformat_close_input(&input_format_ctx);
     if (stream_list) av_free(stream_list);

@@ -12,7 +12,7 @@ static void logging(const char *fmt, ...);
 int main(int argc, char **args) {
     if (argc < 2) {
         printf("Usage: ./main <path>");
-        exit(1);
+        return 1;
     }
 
     const char *fname = args[1];
