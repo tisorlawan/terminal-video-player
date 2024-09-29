@@ -1,3 +1,7 @@
+# Terminal Video Player
+
+Built using ffmpeg (`libavcodec`, `libavformat`, `libavutil`) and `ncurses`.
+
 ## Resources
 
 1. [Ncurses code examples](https://github.com/tony/NCURSES-Programming-HOWTO-examples)
