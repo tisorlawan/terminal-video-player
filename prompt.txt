@@ -1,4 +1,0 @@
-i am currently writing ascii video only player with terminal using c, ncurses and probably ffmpeg.
-Is this a good idea ?
-My idea was to use ffmpeg to decode the video frames, make average accross time (e.g 10 frames) and space (row 1 and col 1) of the pixels, print the closest terminal color to that corresponding position.
-Without giving me the code, because i want to try this my self, can you expand or correct my idea
