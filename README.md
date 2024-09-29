@@ -2,6 +2,12 @@
 
 Built using ffmpeg (`libavcodec`, `libavformat`, `libavutil`) and `ncurses`.
 
+
+
+https://github.com/user-attachments/assets/a018a066-37b5-4c62-a9a8-ceb0cf4f8af7
+
+
+
 ## Resources
 
 1. [Ncurses code examples](https://github.com/tony/NCURSES-Programming-HOWTO-examples)
